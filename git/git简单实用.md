@@ -151,7 +151,15 @@ git status
 
 ``` bash
 git add REDME.md                    # 添加仓库下所有文件到暂存区使用git add .
+
 git status
+
+On branch master
+Your branch is up to date with 'origin/master'.
+
+Changes to be committed:  #被提交到暂存区的文件会出现在这里
+  (use "git restore --staged <file>..." to unstage)
+	new file:   "git/git\347\256\200\345\215\225\345\256\236\347\224\250.md"
 ```
 
 =>README.md会显示在***Changes to be commited***中
@@ -166,6 +174,10 @@ git status
 
 ```bash
 git commit -m "first commit" # 格式：git commit -m "提交备注信息"
+
+[master 479dd41] first commit
+ 1 file changed, 179 insertions(+)
+ create mode 100644 "git/git\347\256\200\345\215\225\345\256\236\347\224\250.md"
 ```
 
 
@@ -174,6 +186,8 @@ git commit -m "first commit" # 格式：git commit -m "提交备注信息"
 
 ```bash
 git status
+
+
 ```
 
 显示：**nothing to commit, working directory clean**(工作目录很干净）=>结果并未更改
