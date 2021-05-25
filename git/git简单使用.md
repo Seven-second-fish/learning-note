@@ -300,6 +300,133 @@ index 1230655..98135b8 100644
 ```bash
 git log -p git
 
+# 主要第三次只修改了git文件夹中的git简单使用.md
+commit  96cfa45643c36ac76fbbd8bfd3t786906971f701(HEAD -> master)
+Author: xxx <xxx@sina.cn>
+Date:   Wed May 26 01:33:30 2021 +0800
+
+    third commit
+
+diff --git "a/git/git\347\256\200\345\215\225\345\256\236\347\224\250.md" "b/git
+/git\347\256\200\345\215\225\345\256\236\347\224\250.md"
+index 1230655..98135b8 100644
+--- "a/git/git\347\256\200\345\215\225\345\256\236\347\224\250.md"
++++ "b/git/git\347\256\200\345\215\225\345\256\236\347\224\250.md"
+@@ -151,7 +151,15 @@ git status
+ 
+ ``` bash
+ git add REDME.md                    # 添加仓库下所有文件到暂存区使用git add .
++
+ git status
++
++On branch master
++Your branch is up to date with 'origin/master'.
++
++Changes to be committed:  #被提交到暂存区的文件会出现在这里
++  (use "git restore --staged <file>..." to unstage)
+.....
+```
+
+
+
+### git diff --查看更改前后的差别
+
+> 可以查看工作树、暂存区、最新提交之间的差别
+
+
+
+*查看工作树和暂存区的差别*
+
+``` bash
+git diff
+
+diff --git "a/git/git\347\256\200\345\215\225\345\256\236\347\224\250.md" "b/git/git\347\256\200\345\215\225\345\256\236\347\224\250.md"
+index fba6c7c..6c9083a 100644
+--- "a/git/git\347\256\200\345\215\225\345\256\236\347\224\250.md"
++++ "b/git/git\347\256\200\345\215\225\345\256\236\347\224\250.md"
+@@ -337,3 +337,4 @@ index 1230655..98135b8 100644
+ 
+ *查看工作树和暂存区的差别*
+ 
++.sad
+\ No newline at end of file
+(END)
+```
+
+
+
+*查看工作树和最新提交的差别*
+
+```bash
+git diff
+
+# 什么都不会显示，因为工作树和暂存区状态并无差别，要查看与最新提交的差别请输入：git diff HEAD
+git diff HEAD
+
+# 显示出来了
+diff --git "a/git/git\347\256\200\345\215\225\345\256\236\347\224\250.md" "b/git/git\347\256\200\345\215\225\345\256\236\347\224\250.md"
+index fba6c7c..baa51bc 100644
+--- "a/git/git\347\256\200\345\215\225\345\256\236\347\224\250.md"
++++ "b/git/git\347\256\200\345\215\225\345\256\236\347\224\250.md"
+@@ -337,3 +337,32 @@ index 1230655..98135b8 100644
+ 
+ *查看工作树和暂存区的差别*
+ 
++``` bash
++git diff
++
++diff --git "a/git/git\347\256\200\345\215\225\345\256\236\347\224\250.md" "b/git/git\347\256\200\345\215\225\345\256\236\347\224\250.md"
++index fba6c7c..6c9083a 100644
++--- "a/git/git\347\256\200\345\215\225\345\256\236\347\224\250.md"
+++++ "b/git/git\347\256\200\345\215\225\345\256\236\347\224\250.md"
++@@ -337,3 +337,4 @@ index 1230655..98135b8 100644
++ 
++ *查看工作树和暂存区的差别*
++ 
+++.sad
++\ No newline at end of file
+...
+```
+
+提示：+是新加行，被删除的用-。
+
+> 好习惯建议
+
+在执行git commit命令前先执行git diff HEAD命令，查看本次与上次提交之间的差别，确认完毕之后再进行提交。
+
+```bash
+# 提交
+git commit -m "five commit"
+
+[master f9e0257] five commit
+ 1 file changed, 26 insertions(+)
+ 
+# 查看日志
+git log
+commit f9e0shjkfe49fa39dfcc3bb947sd565d64fbf7d3 (HEAD -> master)
+Author: xxx <xxx@163.com>
+Date:   Wed May 26 01:58:54 2021 +0800
+
+    five commit
+
+commit 2d412fasda11f789f12sad5a0f9207e62dc4fa196
+Author: xxx <xxx@163.con>
+Date:   Wed May 26 01:50:53 2021 +0800
+
+    fourth commit
+
+commit 96cfa7gfdgfdggdfacf4fbbd8bdfb521606971f701
+Author: xxx <xxx@163.con>
+Date:   Wed May 26 01:33:30 2021 +0800
+
+    third commit
+
+commit 479dd418888d9508bf86511adgdfhfgd678458506d
+Author: xxx <xxx@163.con>
+Date:   Wed May 26 01:32:25 2021 +0800
+
+    second commit
 
 ```
 
+成功查到第五个提交。
