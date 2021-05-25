@@ -300,40 +300,6 @@ index 1230655..98135b8 100644
 ```bash
 git log -p git
 
-# 主要第三次只修改了git文件夹中的git简单使用.md
-commit  96cfa45643c36ac76fbbd8bfd3t786906971f701(HEAD -> master)
-Author: xxx <xxx@sina.cn>
-Date:   Wed May 26 01:33:30 2021 +0800
 
-    third commit
-
-diff --git "a/git/git\347\256\200\345\215\225\345\256\236\347\224\250.md" "b/git
-/git\347\256\200\345\215\225\345\256\236\347\224\250.md"
-index 1230655..98135b8 100644
---- "a/git/git\347\256\200\345\215\225\345\256\236\347\224\250.md"
-+++ "b/git/git\347\256\200\345\215\225\345\256\236\347\224\250.md"
-@@ -151,7 +151,15 @@ git status
- 
- ``` bash
- git add REDME.md                    # 添加仓库下所有文件到暂存区使用git add .
-+
- git status
-+
-+On branch master
-+Your branch is up to date with 'origin/master'.
-+
-+Changes to be committed:  #被提交到暂存区的文件会出现在这里
-+  (use "git restore --staged <file>..." to unstage)
-.....
 ```
-
-
-
-### git diff --查看更改前后的差别
-
-> 可以查看工作树、暂存区、最新提交之间的差别
-
-
-
-*查看工作树和暂存区的差别*
 
