@@ -3069,6 +3069,8 @@ appendfsync everysec               # 每秒执行一次sync同步，可能会丢
 ### RDB(Redis DataBase)
 
 > 指定时间间隔内将内存的数据存一个快照写入磁盘，读取的时候就直接从快照读到内存里
+>
+> 在主从复制中，rdb是从机当作备用的
 
 ![image-20210526095247245](image-20210526095247245.png)
 
@@ -3164,25 +3166,310 @@ auto-aof-rewrite-min-size 64mb
 
 
 
-## 15.Redis事务操作
+## 15.Redis实现订阅发布
 
-## 16.Redis实现订阅发布
+Redis发布订阅(pub/sub)是一种**消息通信模式**：发布者(pub)发送消息，订阅者(sub)接收消息
 
-## 17.Redis主从复制
+Redis客户端可以订阅**任意数量**的频道。
 
-## 18.Redis哨兵模式
+> 订阅/发布消息图
+
+![image-20210526112914567](image-20210526112914567.png)
+
+
+
+下图展示了频道 channel1 ， 以及订阅这个频道的三个客户端 —— client2 、 client5 和 client1 之间的关系：
+
+![img](https://www.runoob.com/wp-content/uploads/2014/11/pubsub1.png)
+
+当有新消息通过 PUBLISH 命令发送给频道 channel1 时， 这个消息就会被发送给订阅它的三个客户端：
+
+![img](https://www.runoob.com/wp-content/uploads/2014/11/pubsub2.png)
+
+
+
+#### 订阅常用命令
+
+| 序号 | **命令及描述**                                               |
+| ---- | ------------------------------------------------------------ |
+| 1    | [PSUBSCRIBE pattern [pattern ...\]](https://www.runoob.com/redis/pub-sub-psubscribe.html)<br/>订阅一个或多个符合给定模式的频道。 |
+| 2    | [PUBSUB subcommand [argument [argument ...\]]](https://www.runoob.com/redis/pub-sub-pubsub.html)<br/>查看订阅与发布系统状态。 |
+| 3    | [ PUBLISH channel message](https://www.runoob.com/redis/pub-sub-publish.html) <br/>将信息发送到指定的频道。 |
+| 4    | [ PUNSUBSCRIBE [pattern [pattern ...\]]](https://www.runoob.com/redis/pub-sub-punsubscribe.html) <br>退订所有给定模式的频道。 |
+| 5    | [SUBSCRIBE channel [channel ...\]](https://www.runoob.com/redis/pub-sub-subscribe.html)<br/>订阅给定的一个或多个频道的信息。 |
+| 6    | [UNSUBSCRIBE [channel [channel ...\]]](https://www.runoob.com/redis/pub-sub-unsubscribe.html)<br/>指退订给定的频道。 |
+
+
+
+#### SUBSCRIBE 订阅
+
+>订阅给定的一个或多个频道的信息
+
+```bash
+PC1
+127.0.0.1:6379> SUBSCRIBE gushi     # 订阅一个频道
+Reading messages... (press Ctrl-C to quit)
+1) "subscribe"
+2) "gushi"
+3) (integer) 1
+```
+
+
+
+#### PUBLISH 发送信息
+
+>将信息发送到指定的频道。
+
+```bash
+PC2
+127.0.0.1:6379> PUBLISH gushi nihao  #向频道内发送信息
+(integer) 1
+PC1
+127.0.0.1:6379> SUBSCRIBE gushi
+Reading messages... (press Ctrl-C to quit)
+1) "subscribe"
+2) "gushi"
+3) (integer) 1
+# 接受的信息
+1) "message"
+2) "gushi"
+3) "nihao"
+```
+
+
+
+#### 原理
+
+Redis通过PUBLISH、SUBSCRIBE和PSUBSCRIBE等命令实现发布和订阅功能。
+
+通过SUBSCRIBE命令订阅频道后，redis-server里维护了一个字典，字典的键就是一个个频道，而字典的值就是一个链表，链表中保存了所有订阅这个channel的客户端。SUBSCRIBE命令的关键，就是将客户端添加到给定channel的订阅链表中。
+
+<img src="image-20210526185633104.png" alt="image-20210526185633104" style="zoom:50%;" />
+
+#### 使用场景
+
+1. 实时消息系统！
+2. 实时聊天！(频道当作聊天室,将信息会显)
+3. 订阅，关注
+
+稍微复杂的场景会使用**消息中间件MQ**来做。
+
+
+
+## 16.Redis主从复制
+
+### 概念
+
+>***！！读写分离！！***
+
+主从复制，是指将一台Redis服务器的数据，复制到其他Redis服务器。前者为**主节点**，后者为**从节点**。
+
+数据的复制是***单向***的，只能从主节点到从节点。Master以写为主，Slave以读为主。
+
+
+
+默认情况下，每台Redis服务器都是主节点；且一个主节点可以有多个从节点，但是一个从节点只能有一个主节点。
+
+
+
+主从复制的作用主要包括：
+
+1. 数据冗余：主从复制实现了数据的热备份，是持久化之外的一种数据冗余方式。
+2. 故障恢复：当主节点出现问题时，可以由从节点提供服务，实现快速的故障恢复；实际上是一种服务冗余。
+3. 负载均衡：在主从复制的基础上，配合读写分离，可以由主节点提供写服务，由从节点提供读服务（读的时候连接Redis从节点，写的时候连接Redis主节点），分担服务器负载，尤其是在写少读多的场景下，通过多个从节点分担读负载，可以大大提高Redis服务器的并发量。
+4. 高可用(集群)基础：除上述作用以外，主从复制还是哨兵和集群能实现的基础，因此说主从复制是**高可用的基础**。
+
+
+
+一般来说，使用Redis的工程项目中，只使用一台redis是万万不能的，原因如下：
+
+1. 从结构上，单个Redis会发生单点故障，并且一台服务器需要处理的请求负载，压力较大。
+2. 从容量上，单个Redis服务器内存容量有限，一般来说，单服务器Redis最大使用内存不超过20G。
+
+
+
+> 公司中，真实项目不可能是单机，必然是主从复制集群
+
+
+
+### 环境配置
+
+> 只配置从库，不配置主库-----redis默认本身为主库
+
+主库
+
+```bash
+info replication                            # 复制，查看当前库的信息
+
+# Replication
+role:master                                 # 属性角色 master
+connected_slaves:0											    # 连接的从机 0个
+master_failover_state:no-failover
+master_replid:61cc3cc55461b71dc40d3b10b8dcf5ff6a12ef42
+master_replid2:0000000000000000000000000000000000000000
+master_repl_offset:0
+second_repl_offset:-1
+repl_backlog_active:0
+repl_backlog_size:1048576
+repl_backlog_first_byte_offset:0
+repl_backlog_histlen:0
+```
+
+从库
+
+```bash
+cp redis.conf redis79.conf
+cp redis.conf redis80.conf
+cp redis.conf redis81.conf
+
+vim redis79.conf
+--------------------------------------------------------------------------------------------
+port 6379                                     # 默认主机不用改
+pidfile /var/run/redis_6379.pid
+logfile "6379.log"                                # 日志文件
+# dump.rdb的文件也必须相同
+dbfilename dump6379.rdb
+--------------------------------------------------------------------------------------------
+
+
+vim redis80.conf
+--------------------------------------------------------------------------------------------
+port 6380                                    # 从机1端口改为6380
+pidfile /var/run/redis_6380.pid              # 修改pid
+logfile "6380.log"                           # 日志文件
+dbfilename dump6380.rdb
+--------------------------------------------------------------------------------------------
+
+
+vim redis81.conf
+--------------------------------------------------------------------------------------------
+port 6381                                    # 从机1端口改为6380
+pidfile /var/run/redis_6381.pid              # 修改pid
+logfile "6381.log"                           # 日志文件
+dbfilename dump6381.rdb
+--------------------------------------------------------------------------------------------
+```
+
+复制3个配置文件，然后修改对应信息：
+
+1、端口port
+
+2、pid名字
+
+3、log日志文件名字
+
+4、rdb备份文件名字
+
+### 开启服务
+
+>redis-server kconfig/redis79.conf
+>
+>redis-server kconfig/redis80.conf
+>
+>redis-server kconfig/redis81.conf
+>
+>查看进程信息
+>
+>ps -ef|grep redis
+
+
+
+### 一主二从
+
+==默认情况下，每一台redis服务器都是主节点==
+
+#### 配置从机
+
+> 集群配置：slaveof指令
+
+```bash
+# slaveof host port
+127.0.0.1:6380>slaveof 127.0.0.1 6379        # 认谁当老大
+# 查看主机
+info replacation
+=>可以看到从机有几个小弟
+```
+
+
+
+> 真实主从配置应该在**配置文件的REPLICATION**中配置，这样的话是***永久***的。
+
+***<u>进入redis80.conf进行配置</u>***
+
+```bash
+# replicaof <masterip> <marsterport>
+replicaof 127.0.0.1 6379
+
+# 如果主机有密码 masterauth <master-password>配置完毕即可
+```
+
+
+
+> 细节
+
+- 主机可以写，从机只能读
+- 主机中的所有信息和数据都会被从机自动保存
+- 如果使用命令行配置的主从，如果重启就会变回主机，只要变回从机，数据立马写回
+
+
+
+> 复制原理
+
+Slave启动成功连接到master后会发送一个sync同步命令（<u>第一次连接的时候就会有一次全部同步</u>）
+
+master接到命令，启动后台的存盘程序，同步手机所有接收到的用于修改数据集命令，在后台进程执行完毕之后，<u>master将传送整个数据文件到slave，并完成一次完全同步。</u>
+
+**全量复制**：slave服务在接收到数据库文件数据后，将其存盘并加载到内存中
+
+**增量复制**：master继续将新的所有收集到的修改命令依次传给slave，完成同步
+
+但是，只要重新连接master，一次完全同步（**全量复制**）将被执行。
+
+
+
+> 层层链路
+>
+> ---------每一层都是主节点和从节点关系
+
+上一个M链接下一个S！
+
+![image-20210527234212952](image-20210527234212952.png)
+
+
+
+
+
+#### 主机宕机
+
+```bash
+# 模拟主机宕机
+shutdown
+```
+
+> 解决宕机导致的主从问题
+
+手动！<u>在无*哨兵模式*的前提下</u>，哨兵模式可以自动选老大。 
+
+只能 "谋朝篡位"
+
+所以执行一个slaveof命令
+
+```bash
+# 我自己当老大
+sloveof no one
+```
+
+
+
+## 17.Redis哨兵模式
 
 （现在所有公司的集群都用哨兵模式）
 
-## 19.缓存穿透及解决方案
-
-## 20.缓存击穿及解决方案
-
-## 21.缓存雪崩及解决方案
-
-## 22.基础API之jedis详解
-
-## 23.Redis的实践分析
 
 
+## 18.缓存穿透及解决方案
+
+## 19.缓存击穿及解决方案
+
+## 20.缓存雪崩及解决方案
 
