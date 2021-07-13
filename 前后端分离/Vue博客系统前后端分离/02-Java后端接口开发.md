@@ -1053,13 +1053,1015 @@ public Object testUser(@Validated @RequestBody User user) {
 public class CorsConfig implements WebMvcConfigurer {
     @Override
     public void addCorsMappings(CorsRegistry registry) {
-        registry.addMapping("/**")
-                .allowedOrigins("*")
-                .allowedMethods("GET", "HEAD", "POST", "PUT", "DELETE", "OPTIONS")
-                .allowCredentials(true)
+        registry.addMapping("/**")//添加映射路径，“/**”表示对所有的路径实行全局跨域访问权限的设置
+          			.exposedHeaders("Authorization")/*暴露哪些头部信息 不能用*因为跨域访问默认不能获取全部头部信息*/
+                .allowedOriginPatterns("*") //开放哪些ip、端口、域名的访问权限
+                .allowedMethods("GET", "HEAD", "POST", "PUT", "DELETE", "OPTIONS")//开放哪些Http方法，允许跨域访问
+                .allowCredentials(true) //是否允许发送Cookie信息
                 .maxAge(3600)
-                .allowedHeaders("*");
+                .allowedHeaders("*");//允许HTTP请求中的携带哪些Header信息
     }
 }
+```
+
+### 登录接口开发
+
+> 登录的逻辑其实很简答，只需要接受账号密码，然后把用户的id生成jwt，返回给前段，为了后续的jwt的延期，所以我们把jwt放在header上。具体代码如下：
+
+- com.cxy.vueblogbg.common.dto.LoginDto
+
+```java
+@Data
+public class LoginDto implements Serializable {
+
+    @NotBlank(message = "昵称不能为空")
+    private String username;
+
+    @NotBlank(message = "密码不能为空")
+    private String password;
+
+}
+```
+
+
+
+- com.cxy.vueblogbg.AccountController
+
+```java
+@RestController
+public class AccountController {
+
+    @Autowired
+    private UserService userService;
+
+    @Autowired
+    private JwtUtils jwtUtils;
+
+    @CrossOrigin//支持跨域
+    @PostMapping("/login")
+    public Result login(@Validated @RequestBody LoginDto loginDto, HttpServletResponse response) {
+        User user = userService.getOne(new QueryWrapper<User>().eq("username", loginDto.getUsername()));
+        //判断用户为不为空，如果为空就是用户不存在
+        Assert.notNull(user, "用户不存在");
+        if (!user.getPassword().equals(SecureUtil.md5(loginDto.getPassword()))) {
+            return Result.fail("密码不正确");
+        }
+        String jwt = jwtUtils.generateToken(user.getId());
+        response.setHeader("Authorization", jwt);
+      //如果想让浏览器能访问到其他的 响应头的话：需要在服务器上设置 Access-Control-Expose-Headers
+       response.setHeader("Access-Control-Expose-Headers", "Authorization");
+        return Result.succ(MapUtil.builder()
+                .put("id", user.getId())
+                .put("username",user.getUsername())
+                .put("avatar",user.getAvatar())
+                .put("email",user.getEmail())
+                .map());
+
+    }
+
+    //认证之后权限
+    @RequiresAuthentication
+    @GetMapping("/logout")
+    public Result logout(){
+        SecurityUtils.getSubject().logout();
+         return Result.succ(200,"退出成功",null);
+    }
+}
+```
+
+> 测试http://localhost:8080/login
+
+![image-20210708140230966](02-Java后端接口开发.assets/image-20210708140230966.png)
+
+### 博客接口开发
+
+- com.cxy.vueblogbg.controller.BlogController
+
+```java
+@RestController
+@RequestMapping("/blog")
+public class BlogController {
+
+    @Autowired
+    private BlogService blogService;
+
+    @GetMapping("blogs")
+    //defaultValue默认值
+    public Result list(@RequestParam(defaultValue = "1") Integer currentPage){
+
+        Page page=new Page(currentPage,5);
+        IPage pageData = blogService.page(page,new QueryWrapper<Blog>().orderByDesc("id"));
+        return Result.succ(pageData);
+    }
+
+    @GetMapping("/{id}")
+    public Result detail(@PathVariable(name = "id") Long id){
+        Blog blog=blogService.getById(id);
+        Assert.notNull(blog,"该博客已被删除");
+        return Result.succ(blog);
+    }
+
+
+    @RequiresAuthentication//认证后才能访问
+    @PostMapping("/edit")
+    public Result edit(@Validated @RequestBody Blog blog){
+        Blog temp=null;
+        //判断是否有id确认编辑还是添加
+        if(blog.getId()!=null){
+            temp=blogService.getById(blog.getId());
+            int i= temp.getUserId();
+            Assert.isTrue(i ==  ShiroUtil.getProfile().getId(),"没有权限编辑");
+        }else{
+            temp=new Blog();
+            temp.setUserId(ShiroUtil.getProfile().getId());
+            temp.setCreated(LocalDateTime.now());
+            temp.setStatus(0);
+        }
+        BeanUtil.copyProperties(blog,temp,"id","userId","created","status");
+        blogService.saveOrUpdate(temp);
+        return Result.succ("success");
+    }
+}
+```
+
+注意**@RequiresAuthentication**说明需要登录之后才能访问的接口，其他需要权限的接口可以**添加shiro的相关注解**。 接口比较简单，我们就不多说了，基本增删改查而已。注意的是**edit**方法是需要登录才能操作的受限资源。
+
+![image-20210709230313557](02-Java后端接口开发.assets/image-20210709230313557.png)
+
+## Vue前端开发
+
+### 前言
+
+接下来使用的技术栈：
+
+- Vue
+- element-plus
+- axios
+- mavon-editor
+- markdown-it
+- github-markdown-css
+
+---
+
+### 安装element-plus
+
+> 这里我们使用的是Vue3.0的版本所以使用elemnt plus
+
+- 不需要引入依赖的配置
+
+```vue
+vue add element-plus
+```
+
+- 需要引入依赖的配置
+
+```vue
+npm install element-plus --save
+```
+
+---
+
+### 引入element-plus依赖
+
+> main.js
+
+```vue
+import ElementPlus from 'element-plus';
+import 'element-plus/lib/theme-chalk/index.css';
+```
+
+---
+
+### 安装axios
+
+```vue
+npm install axios --save
+//调用的时候在.vue中使用
+const axios = require('axios');
+```
+
+---
+
+### 页面路由
+
+我们在views文件夹下定义几个页面：
+
+- BlogDetail.vue（博客详情页）
+- BlogEdit.vue（编辑博客）
+- Blogs.vue（博客列表）
+- Login.vue（登录页面）
+
+> 路径参数使用`:id`形式
+
+再在路由中心配置：
+
+```js
+const routes = [
+	{
+		path: '/login',
+		name: 'Login',
+		component: Login
+	},
+	{
+		path: '/blogs',
+		name: 'Blogs',
+		component: Blogs
+	},
+	{
+		path: '/blog/add',
+		name: 'BlogEdit',
+		component: BlogEdit
+	},
+	{
+		path: '/blog/:blogId',
+		name: 'BlogDetail',
+		component: BlogDetail
+	},
+	{
+		//:blogId作为一个参数被传过来
+		path: '/blog/:blogId/edit',
+		name: 'BlogEdit',
+		component: BlogEdit
+	}
+]
+```
+
+### 登陆页面开发
+
+#### 初始化登陆界面
+
+> 无后台数据接口
+
+```vue
+<template>
+	<div class="login">
+		<el-container>
+			<el-header>个人博客</el-header>
+			<el-main>
+				 <el-form :model="ruleForm" :rules="rules" ref="ruleForm" label-width="100px" class="demo-ruleForm">
+				  <el-form-item label="用户名" prop="username">
+				    <el-input v-model="ruleForm.username"></el-input>
+				  </el-form-item>
+				  <el-form-item label="密码" prop="password">
+				    <el-input v-model="ruleForm.password"></el-input>
+				  </el-form-item>
+				  <el-form-item>
+				    <el-button type="primary" @click="submitForm('ruleForm')">立即创建</el-button>
+				    <el-button @click="resetForm('ruleForm')">重置</el-button>
+				  </el-form-item>
+				</el-form>
+			</el-main>
+		</el-container>
+	</div>
+</template>
+
+<script>
+	export default {
+		name: "Login",
+		data() {
+			return {
+				ruleForm: {
+					username: '',
+					password: ''
+				},
+				rules: {
+					username: [{
+							required: true,
+							message: '请输入用户名',
+							trigger: 'blur'
+						},
+						{
+							min: 3,
+							max: 5,
+							message: '长度在 3 到 6 个字符',
+							trigger: 'blur'
+						}
+					],
+					password: [{
+						required: true,
+						message: '请输入密码',
+						trigger: 'change'
+					},
+						{
+							min: 3,
+							max: 5,
+							message: '密码长度在 3 到 6 个字符',
+							trigger: 'change'
+						}
+					]
+				}
+			};
+		},
+		methods: {
+			submitForm(formName) {
+				this.$refs[formName].validate((valid) => {
+					if (valid) {
+						alert('submit!');
+					} else {
+						console.log('error submit!!');
+						return false;
+					}
+				});
+			},
+			resetForm(formName) {
+				this.$refs[formName].resetFields();
+			}
+		}
+	}
+</script>
+
+<style scoped="scoped">
+	.el-header,
+	.el-footer {
+		background-color: #B3C0D1;
+		color: #333;
+		text-align: center;
+		line-height: 60px;
+	}
+	.demo-ruleForm{
+		max-width: 500px;
+		margin: 0 auto;
+	}
+	
+</style>
+```
+
+#### 登陆请求
+
+> 加一个axios的post请求
+
+```vue
+<template>
+	<div class="login">
+		<el-container>
+			<el-header>个人博客</el-header>
+			<el-main>
+				 <el-form :model="ruleForm" :rules="rules" ref="ruleForm" label-width="100px" class="demo-ruleForm">
+				  <el-form-item label="用户名" prop="username">
+				    <el-input v-model="ruleForm.username"></el-input>
+				  </el-form-item>
+				  <el-form-item label="密码" prop="password">
+				    <el-input v-model="ruleForm.password"></el-input>
+				  </el-form-item>
+				  <el-form-item>
+				    <el-button type="primary" @click="submitForm('ruleForm')">立即创建</el-button>
+				    <el-button @click="resetForm('ruleForm')">重置</el-button>
+				  </el-form-item>
+				</el-form>
+			</el-main>
+		</el-container>
+	</div>
+</template>
+
+<script>
+	const axios=require("axios");
+	export default {
+		name: "Login",
+		data() {
+			return {
+				ruleForm: {
+					username: '',
+					password: ''
+				},
+				rules: {
+					username: [{
+							required: true,
+							message: '请输入用户名',
+							trigger: 'blur'
+						},
+						{
+							min: 3,
+							max: 15,
+							message: '长度在 3 到 15 个字符',
+							trigger: 'blur'
+						}
+					],
+					password: [{
+						required: true,
+						message: '请输入密码',
+						trigger: 'change'
+					},
+						{
+							min: 3,
+							max: 6,
+							message: '密码长度在 3 到 6 个字符',
+							trigger: 'change'
+						}
+					]
+				}
+			};
+		},
+		methods: {
+			submitForm(formName) {
+				this.$refs[formName].validate((valid) => {
+					if (valid) {
+						axios.post("http://localhost:8080/login",this.ruleForm)
+							.then(res=>{
+								console.log(res.data);
+							})
+					} else {
+						console.log('error submit!!');
+						return false;
+					}
+				});
+			},
+			resetForm(formName) {
+				this.$refs[formName].resetFields();
+			}
+		}
+	}
+</script>
+
+<style scoped="scoped">
+	.el-header,
+	.el-footer {
+		background-color: #B3C0D1;
+		color: #333;
+		text-align: center;
+		line-height: 60px;
+	}
+	.demo-ruleForm{
+		max-width: 500px;
+		margin: 0 auto;
+	}
+	
+</style>
+```
+
+**显示**
+
+![image-20210710152104518](02-Java后端接口开发.assets/image-20210710152104518.png)
+
+#### Token的状态同步
+
+> 存储信息需要使用Vuex存储信息和localStorage持久化信息
+
+#### Store
+
+```js
+import { createStore } from 'vuex'
+
+export default createStore({
+  state: {
+	  token: localStorage.getItem("token"),
+	  userInfo: JSON.parse(sessionStorage.getItem("userInfo"))
+  },
+  mutations: {
+	  //==Java里的set方法
+	  SET_TOKEN:(state,token)=>{
+		  state.token=token;
+		  localStorage.setItem("token",token);
+	  },
+	  SET_USERINFO:(state,userInfo)=>{
+		  state.userInfo=userInfo;
+		  //浏览器关闭状态会丢失，但是token还在
+		  sessionStorage.setItem("userInfo",JSON.stringify(userInfo));
+	  },
+	  REMOVE_INFO:(state)=>{
+		  state.token='';
+		  state.userInfo={};
+		  localStorage.setItem("token","");
+		  sessionStorage.setItem("userInfo",JSON.stringify(""));
+	  }
+	  
+  },
+  getters:{
+	  //==Java里的get方法
+	  getUserInfo:(state)=>{
+		  return state.userInfo;
+	  },
+	  getToken:(state)=>{
+		  return state.token;
+	  }
+  },
+  actions: {
+  },
+  modules: {
+  }
+})
+```
+
+#### Login.vue的axios
+
+```js
+this.$axios.post("http://localhost:8080/login",this.ruleForm)
+							.then(res=>{
+								const jwt=res.headers['authorization'];
+								const userInfo=res.data.data;
+								console.log(jwt)
+								console.log(userInfo);
+								_this.$store.commit("SET_TOKEN",jwt);
+								_this.$store.commit("SET_USERINFO",userInfo);
+								_this.$router.push("/blogs");
+							})
+					} else {
+						console.log('error submit!!');
+						return false;
+					}
+```
+
+---
+
+### 定义全局axios拦截器
+
+点击登录按钮发起登录请求，成功时候返回了数据，如果是密码错误，我们是不是也应该弹窗消息提示。为了让这个错误弹窗能运用到所有的地方，所以我对axios做了个后置拦截器，就是返回数据时候，如果结果的code或者status不正常，那么我对应弹窗提示。
+
+> 在src目录下创建一个文件axios.js，定义axios拦截
+
+#### 首先在main.js里引入拦截器
+
+```js
+import './axios'
+```
+
+---
+
+#### 在axios.js里配置
+
+```js
+import axios from 'axios'
+import router from './router'
+import store from './store'
+
+import {ElMessage} from 'element-plus';
+
+//设置请求前缀
+axios.defaults.baseURL = "http://localhost:8080";
+axios.defaults.crossDomain = true;
+// axios.defaults.withCredentials = true;
+axios.defaults.headers.common['Authorization'] = localStorage.getItem('token');
+
+//前置拦截，在发起请求的时候的配置，在config中配置请求头等等的信息
+axios.interceptors.request.use(config => {
+	const token = window.localStorage.getItem("token");
+	if(token!=null){
+		config.headers.Authorization = token
+	}
+	console.log("前置拦截器");
+	console.log(config)
+	return config;
+},
+  error => {
+    return Promise.error(error);
+  });
+
+
+//后置拦截
+axios.interceptors.response.use(response => {
+		console.log("后置拦截器"+response);
+		let res = response.data;
+		if (res.code === 200) {
+			return response;
+		} else {
+			ElMessage.error(res.msg);
+			//结束请求
+			return Promise.reject(res);
+		}
+	},
+	error => {
+		//未授权：登录失败 
+		if(error.response.status === 401){
+			store.commit("REMOBVE_INFO");
+			router.push("/login");
+		}
+		ElMessage.error(error.message);
+		//结束请求
+		return Promise.reject(error);
+	}
+);
+```
+
+### 头部组件
+
+那么，我们先来完成头部的用户信息，应该包含三部分信息：id，头像、用户名，而这些信息我们是在登录之后就已经存在了sessionStorage。因此，我们可以通过store的getters获取到用户信息。
+
+![image-20210711132807024](02-Java后端接口开发.assets/image-20210711132807024.png)
+
+```vue
+<template>
+	<div class="header_box">
+		<h1>欢迎来到xingyuhub的博客</h1>
+		<el-avatar :size="100" :src="user.avatar">Xing-Yu</el-avatar>
+		<h3>{{ user.username }}</h3>
+		<div>
+			<span>
+				<el-link href="/blogs">主页</el-link>
+			</span>
+			<el-divider direction="vertical"></el-divider>
+			<span>
+				<el-link type="success" href="/blog/add">发表文章</el-link>
+			</span>
+			<el-divider direction="vertical"></el-divider>
+			<span v-if="!hasLogin">
+				<el-link type="info" href="/login">登录</el-link>
+			</span>
+			<span v-if="hasLogin">
+				<el-link type="danger" @click.prevent="logout">退出</el-link>
+			</span>
+		</div>
+	</div>
+</template>
+
+<script>
+	export default {
+		name: 'Header',
+		data() {
+			return {
+				user: {
+					username: '',
+					avatar: ''
+				},
+				hasLogin: false
+			}
+		},
+		methods: {
+			logout() {
+				const _this = this;
+				_this.$axios.get("http://localhost:8080/logout").then(res => {
+					_this.hasLogin = false;
+					_this.$store.commit("REMOVE_INFO");
+					_this.$router.push("/login");
+				});
+			}
+		},
+		created() {
+			if (this.$store.getters.getUserInfo.username) {
+				this.user.username = this.$store.getters.getUserInfo.username;
+			}
+			if (this.$store.getters.getUserInfo.avatar) {
+				this.user.avatar = this.$store.getters.getUserInfo.avatar;
+			}
+			if (localStorage.getItem("token")) {
+				this.hasLogin = true;
+			}
+		}
+	}
+</script>
+
+<style scoped="scoped">
+	.header_box {
+		max-width: 800px;
+		text-align: center;
+		margin: 0 auto;
+	}
+</style>
+```
+
+### 博客分页
+
+接下来就是列表页面，需要做分页，列表我们在element-ui中直接使用**时间线**组件来作为我们的列表样式，还是挺好看的。还有我们的分页组件。
+
+需要几部分信息：
+
+- 分页信息
+- 博客列表内容，包括id、标题、摘要、创建时间
+- views\Blogs.vue
+
+```vue
+<template>
+	<div>
+		<Header></Header>
+		<el-timeline>
+			<el-timeline-item :timestamp="blog.created" placement="top" v-for="blog in blogs">
+				<el-card>
+					<h4>
+						<!--使用注意-->
+						<router-link :to="{name:'BlogDetail',params:{blogId: blog.id}}">{{blog.title}}</router-link>
+					</h4>
+					<p>{{blog.description}}</p>
+				</el-card>
+			</el-timeline-item>
+		</el-timeline>
+		<el-pagination background layout="prev, pager, next" :current-page="currentPage" @current-change="page" :page-size="pageSize" :total="total">
+		</el-pagination>
+	</div>
+</template>
+
+<script>
+	import Header from '../components/Header.vue'
+	export default {
+		name: 'Blogs',
+		components: {
+			Header
+		},
+		data(){
+			return{
+				blogs:{},
+				currentPage:1.,
+				total:0,
+				pageSize:5
+			}
+		},
+		methods:{
+			page(currentPage){
+				this.$axios.get("/blog/blogs?currentPage="+currentPage).then(res=>{
+					this.blogs=res.data.data.records;
+					this.currentPage=res.data.data.current;
+					this.total=res.data.data.total;
+					this.pageSize=res.data.data.size;
+				})
+			}
+		},
+		created(){
+			this.page(1);
+		}
+	}
+</script>
+<style scoped>
+</style>
+```
+
+在后台Java需要加个设置时间格式的字段
+
+```java
+@JsonFormat(pattern = "yyyy-MM-dd")
+private LocalDateTime created;
+```
+
+data()中直接定义博客列表blogs、以及一些分页信息。methods()中定义分页的调用接口page（currentPage），参数是需要调整的页码currentPage，得到结果之后直接赋值即可。然后初始化时候，直接在mounted()方法中调用第一页this.page(1)。完美。使用element-ui组件就是简单快捷哈哈！ 注意标题这里我们添加了链接，使用的是标签。
+
+### 博客编辑（发表）
+
+我们点击发表博客链接调整到/blog/add页面，这里我们需要用到一个markdown编辑器，在vue组件中，比较好用的是mavon-editor，那么我们直接使用哈。先来安装mavon-editor相关组件：
+
+```bash
+npm i @kangc/v-md-editor@next -S
+```
+
+引入:
+
+```js
+import VueMarkdownEditor from '@kangc/v-md-editor';
+import '@kangc/v-md-editor/lib/style/base-editor.css';
+import vuepressTheme from '@kangc/v-md-editor/lib/theme/vuepress.js';
+import '@kangc/v-md-editor/lib/theme/style/vuepress.css';
+
+import Prism from 'prismjs';
+
+VueMarkdownEditor.use(vuepressTheme, {
+  Prism,
+});
+
+const app = createApp(/*...*/);
+
+app.use(VueMarkdownEditor);
+```
+
+ok，那么我们去定义我们的博客表单：
+
+```vue
+<template>
+	<div>
+		<Header></Header>
+		<div class="m-content">
+			<el-form ref="editForm" status-icon :model="editForm" :rules="rules" label-width="80px">
+				<el-form-item label="标题" prop="title">
+					<el-input v-model="editForm.title"></el-input>
+				</el-form-item>
+				<el-form-item label="摘要" prop="description">
+					<el-input type="textarea" v-model="editForm.description"></el-input>
+				</el-form-item>
+				<el-form-item label="内容" prop="content">
+					<v-md-editor v-model="editForm.content"></v-md-editor>
+				</el-form-item>
+				<el-form-item>
+					<el-button type="primary" @click="submitForm('editForm')">立即创建</el-button>
+					<el-button>取消</el-button>
+				</el-form-item>
+			</el-form>
+		</div>
+	</div>
+</template>
+
+<script>
+	import Header from '../components/Header.vue'
+	export default {
+		name: 'BlogEdit',
+		components: {
+			Header
+		},
+		data() {
+			return {
+				editForm: {
+					id: null,
+					title: '',
+					description: '',
+					content: ''
+				},
+				rules: {
+					title: [{
+							required: true,
+							message: '请输入标题',
+							trigger: 'blur'
+						},
+						{
+							min: 3,
+							max: 50,
+							message: '长度在 3 到 50 个字符',
+							trigger: 'blur'
+						}
+					],
+					description: [{
+						required: true,
+						message: '请输入摘要',
+						trigger: 'blur'
+					}]
+				}
+			}
+		},
+		methods: {
+			submitForm(editForm) {
+				this.$refs[editForm].validate((valid) => {
+					if (valid) {
+						this.$axios.post('/blog/edit',this.editForm)
+						.then(res=>{
+							this.$alert('操作成功', '操作', {
+							          confirmButtonText: '确定',
+							          callback: action => {
+							            this.$router.push("/blogs")
+							          }
+							        });
+						});
+					} else {
+						console.log('error submit!!');
+						return false;
+					}
+				});
+			},
+			resetForm(editForm) {
+				this.$refs[editForm].resetFields();
+			}
+		},
+		created(){
+			let blogId=this.$route.params.blogId;
+			this.$axios.get("/blog/blogs/"+blogId)
+			.then(res=>{
+				this.editForm.title=res.data.data.title;
+				this.editForm.description=res.data.data.description;
+				this.editForm.content=res.data.data.content;
+			});
+		}
+	}
+</script>
+
+<style>
+</style>
+```
+
+### 博客详情
+
+博客详情中需要回显博客信息，然后有个问题就是，后端传过来的是博客内容是markdown格式的内容，我们需要进行渲染然后显示出来，这里我们使用一个插件markdown-it，用于解析md文档，然后导入github-markdown-c，所谓md的样式。
+
+```js
+//markdown样式
+npm install github-markdown-css
+```
+
+```vue
+<template>
+	<div>
+		<Header></Header>
+		<div class="box">
+			<h2>{{blog.title}}</h2>
+			<el-divider></el-divider>
+			 <el-link icon="el-icon-edit" v-show="isUser">
+				 <router-link :to="{name:'BlogEdit', params: {blogId:blog.id}}">编辑</router-link>
+			 </el-link>
+			<div class="content markdown-body" v-html="blog.content"></div>
+			
+		</div>
+	</div>
+</template>
+
+<script>
+	import Header from '../components/Header.vue'
+	import 'github-markdown-css/github-markdown.css'
+	export default{
+		name: 'BlogDetail',
+		components:{
+			Header
+		},
+		data(){
+			return {
+				blog:{
+					id:"",
+					title:"",
+					content:""
+				},
+				isUser:false
+			}
+		},
+		created(){
+			
+			this.$axios.get("/blog/blogs/"+this.$route.params.blogId)
+			.then(res=>{
+				this.blog.id=this.$route.params.blogId;
+				this.blog.title=res.data.data.title;
+				this.blog.content=res.data.data.content;
+        //按钮只有本人才可以编辑
+				if(this.isUser=(res.data.data.userId == this.$store.getters.getUserInfo.id)){
+					this.isUser=true;
+				}
+				console.log(res.data)
+				//content之前进行渲染
+				var MarkdownIt=require("markdown-it");
+				var md=new MarkdownIt();
+				//把本身的markown的内容经过渲染得到html的内容
+				var result=md.render(this.blog.content);
+				this.blog.content=result;
+				
+			})
+		}
+	}
+</script>
+
+<style scoped="scoped">
+	.box{
+		box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.1);
+		width: 100%;;
+		min-height: 700px;
+	}
+</style>
+
+```
+
+返回的博客详情content通过markdown-it工具进行渲染。
+
+再导入样式：
+
+```js
+import 'github-markdown-css/github-markdown.css'
+//样式css
+class="content markdown-body"
+```
+
+### 路由权限拦截
+
+页面已经开发完毕之后，我们来控制一下哪些页面是需要登录之后才能跳转的，如果未登录访问就直接重定向到登录页面，因此我们在src目录下定义一个js文件：permission.js
+
+```js
+import router from "./router";
+// 路由判断登录 根据路由配置文件的参数
+router.beforeEach((to, from, next) => {
+  if (to.matched.some(record => record.meta.requireAuth)) { // 判断该路由是否需要登录权限
+    const token = localStorage.getItem("token")
+    console.log("------------" + token)
+    if (token) { // 判断当前的token是否存在 ； 登录存入的token
+      if (to.path === '/login') {
+      } else {
+        next()
+      }
+    } else {
+      next({
+        path: '/login'
+      })
+    }
+  } else {
+    next()
+  }
+})
+```
+
+通过之前我们再定义页面路由时候的的meta信息，指定requireAuth: true，需要登录才能访问，因此这里我们在每次路由之前（router.beforeEach）判断token的状态，觉得是否需要跳转到登录页面。
+
+ ```js
+ //在router路由中写
+ {
+   path: '/blog/add', // 注意放在 path: '/blog/:blogId'之前
+   name: 'BlogAdd',
+   //登录才能访问
+   meta: {
+     requireAuth: true
+   },
+   component: BlogEdit
+ }
+ ```
+
+然后我们再main.js中import我们的permission.js
+
+```js
+import './permission.js' // 路由拦截
+```
+
+
+
+### 杂谈
+
+```js
+//子元素 
+routes: [
+    {
+      path: '/foo',
+      component: Foo,
+      children: [
+        {
+          path: 'bar',
+          component: Bar,
+          // a meta field
+          meta: { requiresAuth: true }
+        }
+      ]
+    }
+  ]
 ```
 
